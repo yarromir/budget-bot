@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from .db import FinanceDB
 from .parser import ParsedCommand, parse_message
 from .reminders import start_reminder_scheduler
-from .report import generate_html_report
+from .services import FinanceService
 
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 db = FinanceDB()
+service = FinanceService(db)
 
 
 def parse_allowed_user_ids(raw: str | None = None) -> set[int]:
@@ -27,7 +28,10 @@ def parse_allowed_user_ids(raw: str | None = None) -> set[int]:
     for part in value.replace(";", ",").split(","):
         item = part.strip()
         if item:
-            result.add(int(item))
+            try:
+                result.add(int(item))
+            except ValueError:
+                logger.warning("Ignoring invalid Telegram user id in ALLOWED_USER_IDS: %s", item)
     return result
 
 
@@ -58,66 +62,27 @@ def _help_text() -> str:
 
 async def _handle_transaction(message: Message, parsed: ParsedCommand) -> None:
     assert message.from_user is not None
-    assert parsed.type is not None
-    assert parsed.amount is not None
-    transaction_id = db.add_transaction(
-        user_id=message.from_user.id,
-        type_=parsed.type,
-        amount=parsed.amount,
-        category=parsed.category,
-        note=parsed.note,
-    )
-    tx_name = "доход" if parsed.type == "income" else "расход"
-    answer = f"Записал {tx_name}: {parsed.amount:.2f}, категория: {parsed.category or 'прочее'}."
-    if parsed.type == "expense":
-        status = db.check_budget_status(message.from_user.id, parsed.category or "прочее")
-        if status:
-            answer += f"\n\n{status.message}"
-    answer += f"\nID операции: {transaction_id}"
-    await message.answer(answer)
+    await message.answer(service.record_transaction(message.from_user.id, parsed).message)
 
 
 async def _handle_subscription(message: Message, parsed: ParsedCommand) -> None:
     assert message.from_user is not None
-    assert parsed.name is not None
-    assert parsed.amount is not None
-    assert parsed.next_payment_date is not None
-    subscription_id = db.add_subscription(
-        user_id=message.from_user.id,
-        name=parsed.name,
-        amount=parsed.amount,
-        next_payment_date=parsed.next_payment_date,
-    )
-    await message.answer(
-        f"Добавил подписку {parsed.name}: {parsed.amount:.2f}, ближайшая оплата {parsed.next_payment_date}.\n"
-        f"ID подписки: {subscription_id}"
-    )
+    await message.answer(service.add_subscription(message.from_user.id, parsed))
 
 
 async def _handle_budget(message: Message, parsed: ParsedCommand) -> None:
     assert message.from_user is not None
-    assert parsed.category is not None
-    assert parsed.amount is not None
-    db.upsert_budget(message.from_user.id, parsed.category, parsed.amount)
-    await message.answer(f"Лимит на {parsed.category.lower()} установлен: {parsed.amount:.2f} на текущий месяц.")
+    await message.answer(service.set_budget(message.from_user.id, parsed))
 
 
 async def _handle_report(message: Message, parsed: ParsedCommand) -> None:
     assert message.from_user is not None
-    path = generate_html_report(message.from_user.id, parsed.period or "day", db_path=db.path)
+    path = service.report_path(message.from_user.id, parsed.period or "day")
     await message.answer_document(FSInputFile(path), caption="Готово, отчёт в HTML.")
 
 
 async def _mark_paid(user_id: int, target: str | None) -> str:
-    if not target:
-        return "Укажи ID или название подписки, например: /paid 3"
-    subscription = db.find_subscription(user_id, target)
-    if not subscription:
-        return "Не нашёл активную подписку."
-    updated = db.mark_subscription_paid(int(subscription["id"]), user_id=user_id)
-    if not updated:
-        return "Не смог отметить подписку оплаченной."
-    return f"Отметил {updated['name']} оплаченной. Следующая дата: {updated['next_payment_date']}."
+    return service.mark_paid(user_id, target)
 
 
 @router.message(Command("start", "help"))
@@ -143,7 +108,8 @@ async def handle_paid_callback(callback: CallbackQuery) -> None:
         await callback.answer("Доступ закрыт.", show_alert=True)
         return
     subscription_id = callback.data.split(":", 1)[1] if callback.data else ""
-    await callback.message.answer(await _mark_paid(callback.from_user.id, subscription_id))
+    if callback.message:
+        await callback.message.answer(await _mark_paid(callback.from_user.id, subscription_id))
     await callback.answer("Готово")
 
 

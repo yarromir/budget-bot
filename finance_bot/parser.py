@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Literal
+
+from .db import APP_TZ
 
 
 Action = Literal["transaction", "subscription", "budget", "report", "mark_paid", "help", "unknown"]
@@ -23,7 +25,7 @@ class ParsedCommand:
     error: str | None = None
 
 
-AMOUNT_RE = re.compile(r"(?<!\d)(\d+(?:[.,]\d{1,2})?)(?!\d)")
+AMOUNT_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,](\d{1,2}))?(?!\d)")
 DATE_RE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b")
 
 
@@ -35,10 +37,23 @@ def _parse_amount(value: str) -> float | None:
     match = AMOUNT_RE.search(value)
     if not match:
         return None
-    return float(match.group(1).replace(",", "."))
+    whole, fraction = match.groups()
+    normalized = whole.replace(" ", "").replace("\u00a0", "")
+    if fraction is not None:
+        normalized = f"{normalized}.{fraction}"
+    return float(normalized)
 
 
 def _parse_date(value: str) -> date | None:
+    lowered = value.lower()
+    today = datetime.now(APP_TZ).date()
+    if re.search(r"\bпослезавтра\b", lowered):
+        return today + timedelta(days=2)
+    if re.search(r"\bзавтра\b", lowered):
+        return today + timedelta(days=1)
+    if re.search(r"\bсегодня\b", lowered):
+        return today
+
     match = DATE_RE.search(value)
     if not match:
         return None
@@ -46,7 +61,10 @@ def _parse_date(value: str) -> date | None:
     year_number = int(year)
     if year_number < 100:
         year_number += 2000
-    return date(year_number, int(month), int(day))
+    try:
+        return date(year_number, int(month), int(day))
+    except ValueError:
+        return None
 
 
 def _tail_after_amount(value: str) -> str:
@@ -57,7 +75,9 @@ def _tail_after_amount(value: str) -> str:
 
 
 def _strip_category_prefix(value: str) -> str:
-    return _clean(re.sub(r"^(?:на|за|в|по)\s+", "", value, flags=re.IGNORECASE))
+    value = re.sub(r"^(?:на|за|в|по)\s+", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\b(?:сегодня|вчера|завтра|вечером|утром|днем|днём)\b", "", value, flags=re.IGNORECASE)
+    return _clean(value)
 
 
 def _remove_amount_and_date(value: str) -> str:
