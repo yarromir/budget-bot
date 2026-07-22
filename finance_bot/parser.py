@@ -191,3 +191,37 @@ def parse_message(text: str) -> ParsedCommand:
         )
 
     return ParsedCommand(action="unknown")
+
+
+def parse_screenshot_text(text: str) -> ParsedCommand:
+    original = _clean(text)
+    lowered = original.lower()
+    if not original:
+        return ParsedCommand(action="unknown")
+
+    total_match = re.search(
+        r"(?:итого|сумма|оплата|покупка|списание|к\s+оплате|всего)[^0-9]{0,40}"
+        r"(\d+(?:[.,]\d{1,2})?)",
+        lowered,
+        flags=re.IGNORECASE,
+    )
+    amount = float(total_match.group(1).replace(",", ".")) if total_match else _parse_amount(original)
+    if amount is None:
+        return ParsedCommand(action="transaction", type="expense", error="Не вижу сумму на скриншоте.")
+
+    category = "чек"
+    merchant_match = re.search(
+        r"(?:магазин|получатель|мерчант|merchant)[:\s]+(.+?)(?=\s+(?:итого|сумма|оплата|покупка|списание|к\s+оплате|всего)\b|$)",
+        original,
+        flags=re.IGNORECASE,
+    )
+    if merchant_match:
+        category = _clean(merchant_match.group(1)).lower()[:40]
+
+    return ParsedCommand(
+        action="transaction",
+        type="expense",
+        amount=amount,
+        category=category,
+        note=f"Распознано со скриншота: {original}",
+    )
