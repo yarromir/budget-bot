@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Budget Bot</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <p>Telegram Mini App</p>
+      <h1>Личный бюджет</h1>
+      <span id="status">Загружаю данные…</span>
+    </header>
+
+    <section class="cards">
+      <article><span>Доходы</span><strong id="income">0</strong></article>
+      <article><span>Расходы</span><strong id="expense">0</strong></article>
+      <article><span>Остаток</span><strong id="balance">0</strong></article>
+    </section>
+
+    <section class="panel">
+      <h2>Быстрая операция</h2>
+      <form id="transaction-form" class="grid-form">
+        <select name="type">
+          <option value="expense">Расход</option>
+          <option value="income">Доход</option>
+        </select>
+        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Сумма" required>
+        <input name="category" placeholder="Категория" value="прочее" required>
+        <input name="note" placeholder="Комментарий">
+        <button type="submit">Добавить</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Лимит категории</h2>
+      <form id="budget-form" class="grid-form two">
+        <input name="category" placeholder="Категория" required>
+        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Лимит" required>
+        <button type="submit">Сохранить лимит</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Подписка</h2>
+      <form id="subscription-form" class="grid-form">
+        <input name="name" placeholder="Название" required>
+        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Сумма" required>
+        <input name="nextPaymentDate" type="date" required>
+        <button type="submit">Добавить подписку</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Расходы по категориям</h2>
+      <div id="categories" class="list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Последние операции</h2>
+      <div id="transactions" class="list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Подписки</h2>
+      <div id="subscriptions" class="list"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
