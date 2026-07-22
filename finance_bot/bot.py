@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
-from .db import FinanceDB
+from .db import APP_TZ, FinanceDB
 from .parser import ParsedCommand, parse_message
 from .reminders import start_reminder_scheduler
 from .report import generate_html_report
@@ -52,6 +53,8 @@ def _help_text() -> str:
         "• добавь подписку YouTube 299 дата 12.03.2026\n"
         "• лимит на такси 5000\n"
         "• отчет за день / неделю / месяц\n"
+        "• /balance или баланс — показать общий баланс\n"
+        "• /last или последние операции — последние 10 операций\n"
         "• /paid 3 или оплатил подписку YouTube"
     )
 
@@ -108,6 +111,38 @@ async def _handle_report(message: Message, parsed: ParsedCommand) -> None:
     await message.answer_document(FSInputFile(path), caption="Готово, отчёт в HTML.")
 
 
+def _money(value: float) -> str:
+    return f"{value:.2f}"
+
+
+async def _handle_balance(message: Message) -> None:
+    assert message.from_user is not None
+    summary = db.all_time_summary(message.from_user.id)
+    await message.answer(
+        "Баланс за всё время:\n"
+        f"Доходы: {_money(summary['income'])}\n"
+        f"Расходы: {_money(summary['expense'])}\n"
+        f"Остаток: {_money(summary['balance'])}"
+    )
+
+
+async def _handle_last(message: Message) -> None:
+    assert message.from_user is not None
+    rows = db.list_transactions(message.from_user.id, limit=10)
+    if not rows:
+        await message.answer("Операций пока нет.")
+        return
+    lines = ["Последние операции:"]
+    for row in rows:
+        created = row["created_at"]
+        try:
+            created = datetime.fromisoformat(created).astimezone(APP_TZ).strftime("%d.%m %H:%M")
+        except ValueError:
+            created = created[:16]
+        sign = "+" if row["type"] == "income" else "-"
+        lines.append(f"#{row['id']} {created} {sign}{_money(float(row['amount']))} — {row['category']}")
+    await message.answer("\n".join(lines))
+
 async def _mark_paid(user_id: int, target: str | None) -> str:
     if not target:
         return "Укажи ID или название подписки, например: /paid 3"
@@ -126,6 +161,22 @@ async def handle_start(message: Message) -> None:
         await _deny(message)
         return
     await message.answer(_help_text())
+
+
+@router.message(Command("balance"))
+async def handle_balance_command(message: Message) -> None:
+    if not _is_allowed(message.from_user.id if message.from_user else None):
+        await _deny(message)
+        return
+    await _handle_balance(message)
+
+
+@router.message(Command("last"))
+async def handle_last_command(message: Message) -> None:
+    if not _is_allowed(message.from_user.id if message.from_user else None):
+        await _deny(message)
+        return
+    await _handle_last(message)
 
 
 @router.message(Command("paid"))
@@ -166,6 +217,10 @@ async def handle_text(message: Message) -> None:
         await _handle_budget(message, parsed)
     elif parsed.action == "report":
         await _handle_report(message, parsed)
+    elif parsed.action == "balance":
+        await _handle_balance(message)
+    elif parsed.action == "last":
+        await _handle_last(message)
     elif parsed.action == "mark_paid":
         await message.answer(await _mark_paid(message.from_user.id, parsed.target))
     else:
