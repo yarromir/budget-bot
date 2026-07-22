@@ -6,12 +6,13 @@ import os
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
 from .db import FinanceDB
 from .parser import ParsedCommand, parse_message
 from .reminders import start_reminder_scheduler
 from .report import generate_html_report
+from .webapp import start_webapp_server
 
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -40,6 +41,16 @@ def _is_allowed(user_id: int | None) -> bool:
 
 async def _deny(message: Message) -> None:
     await message.answer("Доступ закрыт. Добавь свой Telegram user id в ALLOWED_USER_IDS.")
+
+
+def _main_keyboard() -> ReplyKeyboardMarkup | None:
+    web_app_url = os.getenv("TELEGRAM_WEB_APP_URL")
+    if not web_app_url:
+        return None
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Открыть бюджет", web_app=WebAppInfo(url=web_app_url))]],
+        resize_keyboard=True,
+    )
 
 
 def _help_text() -> str:
@@ -125,7 +136,7 @@ async def handle_start(message: Message) -> None:
     if not _is_allowed(message.from_user.id if message.from_user else None):
         await _deny(message)
         return
-    await message.answer(_help_text())
+    await message.answer(_help_text(), reply_markup=_main_keyboard())
 
 
 @router.message(Command("paid"))
@@ -182,8 +193,15 @@ async def main() -> None:
     bot = Bot(token=token)
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
+    webapp_runner = await start_webapp_server(db, token, ALLOWED_USER_IDS)
+    if webapp_runner:
+        logger.info("Telegram Mini App server started")
     start_reminder_scheduler(bot, db=db, allowed_user_ids=ALLOWED_USER_IDS)
-    await dispatcher.start_polling(bot)
+    try:
+        await dispatcher.start_polling(bot)
+    finally:
+        if webapp_runner:
+            await webapp_runner.cleanup()
 
 
 if __name__ == "__main__":

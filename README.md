@@ -5,6 +5,7 @@
 ## Что умеет
 
 - записывает доходы и расходы в SQLite;
+- открывается как Telegram Mini App с мобильной формой учета бюджета;
 - ведет подписки и присылает напоминания об оплате;
 - хранит месячные лимиты по категориям и предупреждает при 80% и 100%;
 - строит HTML-отчеты за день, неделю и месяц;
@@ -19,6 +20,11 @@ finance_bot/
   parser.py
   reminders.py
   report.py
+  webapp.py
+  webapp_static/
+    index.html
+    styles.css
+    app.js
   requirements.txt
 ```
 
@@ -46,6 +52,26 @@ export FINANCE_BOT_TIMEZONE="Asia/Novosibirsk"
 ```
 
 Если `ALLOWED_USER_IDS` пустой, бот никого не пустит.
+
+## Telegram Mini App
+
+Mini App включается, когда задан публичный HTTPS-адрес веб-приложения:
+
+```bash
+export TELEGRAM_WEB_APP_URL="https://example.com"
+export FINANCE_WEBAPP_HOST="0.0.0.0"
+export FINANCE_WEBAPP_PORT="8080"
+```
+
+После этого команда `/start` покажет кнопку **Открыть бюджет**. Внутри Mini App можно:
+
+- посмотреть доходы, расходы и остаток за текущий месяц;
+- добавить доход или расход;
+- сохранить лимит на категорию;
+- добавить подписку;
+- отметить подписку оплаченной.
+
+API Mini App проверяет `initData` Telegram WebApp и дополнительно сверяет пользователя с `ALLOWED_USER_IDS`. Для локальной разработки можно открыть `/health`, а сам Mini App должен быть доступен Telegram по HTTPS-домену, указанному в `TELEGRAM_WEB_APP_URL`.
 
 ## Запуск
 
