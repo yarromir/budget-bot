@@ -6,7 +6,7 @@ from datetime import date
 from typing import Literal
 
 
-Action = Literal["transaction", "subscription", "budget", "report", "mark_paid", "help", "unknown"]
+Action = Literal["transaction", "subscription", "budget", "report", "mark_paid", "balance", "last", "help", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -72,6 +72,12 @@ def parse_message(text: str) -> ParsedCommand:
 
     if lowered in {"/start", "/help", "help", "помощь", "что умеешь"}:
         return ParsedCommand(action="help")
+
+    if lowered in {"/balance", "баланс", "мой баланс", "сколько денег"}:
+        return ParsedCommand(action="balance")
+
+    if lowered in {"/last", "последние операции", "последние траты", "история"}:
+        return ParsedCommand(action="last")
 
     if lowered.startswith("/paid "):
         return ParsedCommand(action="mark_paid", target=_clean(original.split(maxsplit=1)[1]))

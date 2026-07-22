@@ -141,16 +141,32 @@ class FinanceDB:
             )
             return int(cursor.lastrowid)
 
-    def list_transactions(self, user_id: int, start_at: datetime, end_at: datetime) -> list[sqlite3.Row]:
+    def list_transactions(
+        self,
+        user_id: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+        limit: int | None = None,
+    ) -> list[sqlite3.Row]:
         with self.connect() as conn:
             return conn.execute(
                 """
                 SELECT id, user_id, type, amount, category, note, created_at
                 FROM transactions
-                WHERE user_id = ? AND created_at >= ? AND created_at < ?
+                WHERE user_id = ?
+                  AND (? IS NULL OR created_at >= ?)
+                  AND (? IS NULL OR created_at < ?)
                 ORDER BY created_at DESC, id DESC
+                LIMIT COALESCE(?, -1)
                 """,
-                (user_id, start_at.isoformat(timespec="seconds"), end_at.isoformat(timespec="seconds")),
+                (
+                    user_id,
+                    start_at.isoformat(timespec="seconds") if start_at else None,
+                    start_at.isoformat(timespec="seconds") if start_at else None,
+                    end_at.isoformat(timespec="seconds") if end_at else None,
+                    end_at.isoformat(timespec="seconds") if end_at else None,
+                    limit,
+                ),
             ).fetchall()
 
     def transaction_summary(self, user_id: int, start_at: datetime, end_at: datetime) -> dict[str, float]:
@@ -163,6 +179,23 @@ class FinanceDB:
                 GROUP BY type
                 """,
                 (user_id, start_at.isoformat(timespec="seconds"), end_at.isoformat(timespec="seconds")),
+            ).fetchall()
+        result = {"income": 0.0, "expense": 0.0}
+        for row in rows:
+            result[row["type"]] = float(row["total"] or 0)
+        result["balance"] = result["income"] - result["expense"]
+        return result
+
+    def all_time_summary(self, user_id: int) -> dict[str, float]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT type, COALESCE(SUM(amount), 0) AS total
+                FROM transactions
+                WHERE user_id = ?
+                GROUP BY type
+                """,
+                (user_id,),
             ).fetchall()
         result = {"income": 0.0, "expense": 0.0}
         for row in rows:
