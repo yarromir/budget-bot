@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from .db import FinanceDB
-from .parser import ParsedCommand, parse_message
+from .ocr import recognize_screenshot
+from .parser import ParsedCommand, parse_message, parse_screenshot_text
 from .reminders import start_reminder_scheduler
 from .report import generate_html_report
 
@@ -52,7 +55,9 @@ def _help_text() -> str:
         "• добавь подписку YouTube 299 дата 12.03.2026\n"
         "• лимит на такси 5000\n"
         "• отчет за день / неделю / месяц\n"
-        "• /paid 3 или оплатил подписку YouTube"
+        "• /paid 3 или оплатил подписку YouTube\n"
+        "\nПришли скриншот чека или банковской операции — "
+        "я распознаю текст и попробую записать расход."
     )
 
 
@@ -120,6 +125,42 @@ async def _mark_paid(user_id: int, target: str | None) -> str:
     return f"Отметил {updated['name']} оплаченной. Следующая дата: {updated['next_payment_date']}."
 
 
+async def _process_recognized_text(message: Message, text: str) -> None:
+    parsed = parse_message(text)
+    if parsed.action == "unknown":
+        parsed = parse_screenshot_text(text)
+    if parsed.error:
+        await message.answer(f"Распознал текст, но не смог записать операцию: {parsed.error}\n\nТекст: {text}")
+        return
+    if parsed.action != "transaction":
+        await message.answer(
+            "Распознал текст, но не нашёл расход или доход, который можно записать.\n\n"
+            f"Текст: {text}"
+        )
+        return
+    await message.answer(f"Распознал текст: {text}")
+    await _handle_transaction(message, parsed)
+
+
+async def _download_message_image(message: Message) -> Path | None:
+    bot = message.bot
+    suffix = ".jpg"
+    file_id: str | None = None
+    if message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.document and message.document.mime_type in {"image/png", "image/jpeg", "image/webp"}:
+        file_id = message.document.file_id
+        if message.document.file_name:
+            suffix = Path(message.document.file_name).suffix or suffix
+    if not file_id:
+        return None
+
+    with tempfile.NamedTemporaryFile(prefix="finance-bot-screenshot-", suffix=suffix, delete=False) as tmp:
+        path = Path(tmp.name)
+    await bot.download(file_id, destination=path)
+    return path
+
+
 @router.message(Command("start", "help"))
 async def handle_start(message: Message) -> None:
     if not _is_allowed(message.from_user.id if message.from_user else None):
@@ -145,6 +186,25 @@ async def handle_paid_callback(callback: CallbackQuery) -> None:
     subscription_id = callback.data.split(":", 1)[1] if callback.data else ""
     await callback.message.answer(await _mark_paid(callback.from_user.id, subscription_id))
     await callback.answer("Готово")
+
+
+@router.message(F.photo | (F.document.mime_type.in_({"image/png", "image/jpeg", "image/webp"})))
+async def handle_screenshot(message: Message) -> None:
+    if not _is_allowed(message.from_user.id if message.from_user else None):
+        await _deny(message)
+        return
+    path = await _download_message_image(message)
+    if path is None:
+        await message.answer("Пришли скриншот как фото или PNG/JPG файл.")
+        return
+    try:
+        result = await asyncio.to_thread(recognize_screenshot, path)
+    finally:
+        path.unlink(missing_ok=True)
+    if result.error:
+        await message.answer(result.error)
+        return
+    await _process_recognized_text(message, result.text)
 
 
 @router.message(F.text)
