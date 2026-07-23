@@ -3,16 +3,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
 from .db import APP_TZ, FinanceDB
-from .parser import ParsedCommand, parse_message
+from .ocr import recognize_screenshot
+from .parser import ParsedCommand, parse_message, parse_screenshot_text
 from .reminders import start_reminder_scheduler
 from .services import FinanceService
+from .webapp import start_webapp_server
 
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -47,6 +51,16 @@ async def _deny(message: Message) -> None:
     await message.answer("Доступ закрыт. Добавь свой Telegram user id в ALLOWED_USER_IDS.")
 
 
+def _main_keyboard() -> ReplyKeyboardMarkup | None:
+    web_app_url = os.getenv("TELEGRAM_WEB_APP_URL")
+    if not web_app_url:
+        return None
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Открыть бюджет", web_app=WebAppInfo(url=web_app_url))]],
+        resize_keyboard=True,
+    )
+
+
 def _help_text() -> str:
     return (
         "Понимаю фразы:\n"
@@ -59,7 +73,9 @@ def _help_text() -> str:
         "• отчет за день / неделю / месяц\n"
         "• /balance или баланс — показать общий баланс\n"
         "• /last или последние операции — последние 10 операций\n"
-        "• /paid 3 или оплатил подписку YouTube"
+        "• /paid 3 или оплатил подписку YouTube\n"
+        "\nПришли скриншот чека или банковской операции — "
+        "я распознаю текст и попробую записать расход."
     )
 
 
@@ -116,8 +132,44 @@ async def _handle_last(message: Message) -> None:
         lines.append(f"#{row['id']} {created} {sign}{_money(float(row['amount']))} — {row['category']}")
     await message.answer("\n".join(lines))
 
+
 async def _mark_paid(user_id: int, target: str | None) -> str:
     return service.mark_paid(user_id, target)
+
+
+async def _process_recognized_text(message: Message, text: str) -> None:
+    parsed = parse_message(text)
+    if parsed.action == "unknown":
+        parsed = parse_screenshot_text(text)
+    if parsed.error:
+        await message.answer(f"Распознал текст, но не смог записать операцию: {parsed.error}\n\nТекст: {text}")
+        return
+    if parsed.action != "transaction":
+        await message.answer(
+            "Распознал текст, но не нашёл расход или доход, который можно записать.\n\n"
+            f"Текст: {text}"
+        )
+        return
+    await message.answer(f"Распознал текст: {text}")
+    await _handle_transaction(message, parsed)
+
+
+async def _download_message_image(message: Message) -> Path | None:
+    suffix = ".jpg"
+    file_id: str | None = None
+    if message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.document and message.document.mime_type in {"image/png", "image/jpeg", "image/webp"}:
+        file_id = message.document.file_id
+        if message.document.file_name:
+            suffix = Path(message.document.file_name).suffix or suffix
+    if not file_id:
+        return None
+
+    with tempfile.NamedTemporaryFile(prefix="finance-bot-screenshot-", suffix=suffix, delete=False) as tmp:
+        path = Path(tmp.name)
+    await message.bot.download(file_id, destination=path)
+    return path
 
 
 @router.message(Command("start", "help"))
@@ -125,7 +177,7 @@ async def handle_start(message: Message) -> None:
     if not _is_allowed(message.from_user.id if message.from_user else None):
         await _deny(message)
         return
-    await message.answer(_help_text())
+    await message.answer(_help_text(), reply_markup=_main_keyboard())
 
 
 @router.message(Command("balance"))
@@ -162,6 +214,25 @@ async def handle_paid_callback(callback: CallbackQuery) -> None:
     if callback.message:
         await callback.message.answer(await _mark_paid(callback.from_user.id, subscription_id))
     await callback.answer("Готово")
+
+
+@router.message(F.photo | (F.document.mime_type.in_({"image/png", "image/jpeg", "image/webp"})))
+async def handle_screenshot(message: Message) -> None:
+    if not _is_allowed(message.from_user.id if message.from_user else None):
+        await _deny(message)
+        return
+    path = await _download_message_image(message)
+    if path is None:
+        await message.answer("Пришли скриншот как фото или PNG/JPG файл.")
+        return
+    try:
+        result = await asyncio.to_thread(recognize_screenshot, path)
+    finally:
+        path.unlink(missing_ok=True)
+    if result.error:
+        await message.answer(result.error)
+        return
+    await _process_recognized_text(message, result.text)
 
 
 @router.message(F.text)
@@ -203,8 +274,15 @@ async def main() -> None:
     bot = Bot(token=token)
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
+    webapp_runner = await start_webapp_server(db, token, ALLOWED_USER_IDS)
+    if webapp_runner:
+        logger.info("Telegram Mini App server started")
     start_reminder_scheduler(bot, db=db, allowed_user_ids=ALLOWED_USER_IDS)
-    await dispatcher.start_polling(bot)
+    try:
+        await dispatcher.start_polling(bot)
+    finally:
+        if webapp_runner:
+            await webapp_runner.cleanup()
 
 
 if __name__ == "__main__":

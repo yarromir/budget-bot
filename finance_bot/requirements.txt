@@ -1,5 +1,7 @@
 aiogram>=3.10,<4
 matplotlib>=3.8
 tzdata>=2024.1
-
 pytest>=8.0
+pillow>=10.0
+pytesseract>=0.3.10
+aiohttp>=3.9
