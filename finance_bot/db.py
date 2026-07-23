@@ -204,7 +204,7 @@ class FinanceDB:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT type, COALESCE(SUM(amount), 0) AS total
+                SELECT type, COALESCE(SUM(COALESCE(amount_cents / 100.0, amount)), 0) AS total
                 FROM transactions
                 WHERE user_id = ?
                 GROUP BY type
@@ -356,3 +356,28 @@ class FinanceDB:
         else:
             return None
         return BudgetStatus(category=budget["category"], limit_amount=limit_amount, spent=spent, percent=percent, level=level)
+
+    def count_user_records(self, user_id: int) -> dict[str, int]:
+        with self.connect() as conn:
+            return {
+                "transactions": int(conn.execute("SELECT COUNT(*) FROM transactions WHERE user_id = ?", (user_id,)).fetchone()[0]),
+                "subscriptions": int(conn.execute("SELECT COUNT(*) FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()[0]),
+                "budgets": int(conn.execute("SELECT COUNT(*) FROM budgets WHERE user_id = ?", (user_id,)).fetchone()[0]),
+            }
+
+    def clear_user_data(self, user_id: int, target: str = "all") -> dict[str, int]:
+        tables = {
+            "transactions": "transactions",
+            "subscriptions": "subscriptions",
+            "budgets": "budgets",
+        }
+        selected = list(tables) if target == "all" else [target]
+        if any(item not in tables for item in selected):
+            raise ValueError(f"Unknown clear target: {target}")
+        deleted = {"transactions": 0, "subscriptions": 0, "budgets": 0}
+        with self.connect() as conn:
+            for item in selected:
+                cursor = conn.execute(f"DELETE FROM {tables[item]} WHERE user_id = ?", (user_id,))
+                deleted[item] = int(cursor.rowcount if cursor.rowcount is not None else 0)
+        return deleted
+

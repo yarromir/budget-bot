@@ -75,6 +75,8 @@ def _help_text() -> str:
         "• /balance или баланс — показать общий баланс\n"
         "• /last или последние операции — последние 10 операций\n"
         "• /paid 3 или оплатил подписку YouTube\n"
+        "• /clear all yes — очистить все свои данные\n"
+        "• /clear transactions yes — удалить свои операции\n"
         "\nЕсли подключен Nous Hermes, можно писать свободнее: \"вчера в кафе оставил 1200\".\n"
         "\nПришли скриншот чека или банковской операции — "
         "я распознаю текст и попробую записать расход."
@@ -198,6 +200,18 @@ async def handle_last_command(message: Message) -> None:
     await _handle_last(message)
 
 
+@router.message(Command("clear", "reset"))
+async def handle_clear_command(message: Message) -> None:
+    if not _is_allowed(message.from_user.id if message.from_user else None):
+        await _deny(message)
+        return
+    parsed = parse_message(message.text or "")
+    if parsed.error:
+        await message.answer(parsed.error)
+        return
+    await message.answer(service.clear_data(message.from_user.id, parsed.target))
+
+
 @router.message(Command("paid"))
 async def handle_paid_command(message: Message) -> None:
     if not _is_allowed(message.from_user.id if message.from_user else None):
@@ -262,6 +276,11 @@ async def handle_text(message: Message) -> None:
         await _handle_balance(message)
     elif parsed.action == "last":
         await _handle_last(message)
+    elif parsed.action == "clear":
+        if parsed.error:
+            await message.answer(parsed.error)
+        else:
+            await message.answer(service.clear_data(message.from_user.id, parsed.target))
     elif parsed.action == "mark_paid":
         await message.answer(await _mark_paid(message.from_user.id, parsed.target))
     else:

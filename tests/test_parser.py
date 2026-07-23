@@ -35,3 +35,26 @@ def test_income_with_spaced_amount() -> None:
     assert parsed.type == "income"
     assert parsed.amount == 100000
     assert parsed.category == "зп"
+
+
+def test_clear_command_requires_confirmation() -> None:
+    parsed = parse_message("/clear all")
+
+    assert parsed.action == "clear"
+    assert parsed.target == "all"
+    assert parsed.error is not None
+
+
+def test_clear_transactions_command_with_confirmation() -> None:
+    parsed = parse_message("/clear transactions yes")
+
+    assert parsed.action == "clear"
+    assert parsed.target == "transactions"
+    assert parsed.error is None
+
+
+def test_russian_clear_database_command() -> None:
+    parsed = parse_message("очистить базу подтверждаю")
+
+    assert parsed.action == "clear"
+    assert parsed.target == "all"

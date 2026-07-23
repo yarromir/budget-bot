@@ -66,3 +66,22 @@ class FinanceService:
         if not updated:
             return "Не смог отметить подписку оплаченной."
         return f"Отметил {updated['name']} оплаченной. Следующая дата: {updated['next_payment_date']}."
+
+    def clear_data(self, user_id: int, target: str | None) -> str:
+        clean_target = target or "all"
+        labels = {
+            "transactions": "операций",
+            "subscriptions": "подписок",
+            "budgets": "лимитов",
+            "all": "записей",
+        }
+        if clean_target not in labels:
+            return "Неизвестный тип очистки. Используй transactions, subscriptions, budgets или all."
+        deleted = self.db.clear_user_data(user_id, clean_target)
+        total = sum(deleted.values())
+        details = ", ".join(
+            f"{deleted[key]} {label}"
+            for key, label in (("transactions", "операций"), ("subscriptions", "подписок"), ("budgets", "лимитов"))
+            if clean_target == "all" or key == clean_target
+        )
+        return f"Готово: удалено {total} {labels[clean_target]} ({details})."

@@ -8,7 +8,7 @@ from typing import Literal
 from .db import APP_TZ
 
 
-Action = Literal["transaction", "subscription", "budget", "report", "mark_paid", "balance", "last", "help", "unknown"]
+Action = Literal["transaction", "subscription", "budget", "report", "mark_paid", "balance", "last", "clear", "help", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,42 @@ def parse_message(text: str) -> ParsedCommand:
 
     if lowered.startswith("/paid "):
         return ParsedCommand(action="mark_paid", target=_clean(original.split(maxsplit=1)[1]))
+
+    clear_match = re.fullmatch(r"/(?:clear|reset)(?:\s+(transactions|subscriptions|budgets|all))?(?:\s+(yes|да|confirm|подтверждаю))?", lowered)
+    if clear_match:
+        target = clear_match.group(1) or "all"
+        confirmed = clear_match.group(2) is not None
+        if not confirmed:
+            return ParsedCommand(
+                action="clear",
+                target=target,
+                error=f"Это удалит данные: {target}. Для подтверждения напиши /clear {target} yes",
+            )
+        return ParsedCommand(action="clear", target=target)
+
+    russian_clear_match = re.fullmatch(
+        r"(?:очисти|очистить|сбрось|сбросить)\s+(операции|транзакции|подписки|лимиты|бюджеты|базу|всё|все)(?:\s+(да|подтверждаю))?",
+        lowered,
+    )
+    if russian_clear_match:
+        aliases = {
+            "операции": "transactions",
+            "транзакции": "transactions",
+            "подписки": "subscriptions",
+            "лимиты": "budgets",
+            "бюджеты": "budgets",
+            "базу": "all",
+            "всё": "all",
+            "все": "all",
+        }
+        target = aliases[russian_clear_match.group(1)]
+        if russian_clear_match.group(2) is None:
+            return ParsedCommand(
+                action="clear",
+                target=target,
+                error=f"Это удалит данные: {target}. Для подтверждения напиши /clear {target} yes",
+            )
+        return ParsedCommand(action="clear", target=target)
 
     paid_match = re.search(
         r"^(?:оплатил|оплатила|оплачено)\s+(?:подписк[ау]\s+)?(.+)$|^подписка\s+(.+?)\s+оплачена$",
