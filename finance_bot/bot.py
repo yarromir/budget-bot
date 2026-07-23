@@ -12,6 +12,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, KeyboardButton, Message, ReplyKeyboardMarkup, WebAppInfo
 
 from .db import APP_TZ, FinanceDB
+from .llm import is_llm_enabled, parse_message_with_llm
 from .ocr import recognize_screenshot
 from .parser import ParsedCommand, parse_message, parse_screenshot_text
 from .reminders import start_reminder_scheduler
@@ -74,6 +75,7 @@ def _help_text() -> str:
         "• /balance или баланс — показать общий баланс\n"
         "• /last или последние операции — последние 10 операций\n"
         "• /paid 3 или оплатил подписку YouTube\n"
+        "\nЕсли подключен Nous Hermes, можно писать свободнее: \"вчера в кафе оставил 1200\".\n"
         "\nПришли скриншот чека или банковской операции — "
         "я распознаю текст и попробую записать расход."
     )
@@ -241,6 +243,8 @@ async def handle_text(message: Message) -> None:
         await _deny(message)
         return
     parsed = parse_message(message.text or "")
+    if parsed.action == "unknown" and is_llm_enabled():
+        parsed = await asyncio.to_thread(parse_message_with_llm, message.text or "")
     if parsed.error:
         await message.answer(parsed.error)
         return
