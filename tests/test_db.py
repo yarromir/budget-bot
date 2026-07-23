@@ -50,3 +50,18 @@ def test_migrates_legacy_real_amounts(tmp_path) -> None:
     start, end = month_bounds("2026-07")
 
     assert db.transaction_summary(1, start, end)["expense"] == 12.34
+
+
+def test_clear_user_data_only_affects_selected_user(tmp_path) -> None:
+    db = FinanceDB(tmp_path / "finance.db")
+    db.initialize()
+    db.add_transaction(1, "expense", 100, "такси")
+    db.add_transaction(2, "expense", 200, "такси")
+    db.add_subscription(1, "YouTube", 299, date(2026, 8, 1))
+    db.upsert_budget(1, "такси", 1000, month="2026-07")
+
+    deleted = db.clear_user_data(1, "all")
+
+    assert deleted == {"transactions": 1, "subscriptions": 1, "budgets": 1}
+    assert db.count_user_records(1) == {"transactions": 0, "subscriptions": 0, "budgets": 0}
+    assert db.count_user_records(2)["transactions"] == 1
