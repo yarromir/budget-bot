@@ -27,6 +27,10 @@ class ParsedCommand:
 
 AMOUNT_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,](\d{1,2}))?(?!\d)")
 DATE_RE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b")
+SCREENSHOT_TRANSACTION_HINT_RE = re.compile(
+    r"\b(?:итого|сумма|оплата|покупка|списание|к\s+оплате|всего|перевод|чек|receipt|total|payment)\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _clean(value: str) -> str:
@@ -241,7 +245,22 @@ def parse_screenshot_text(text: str) -> ParsedCommand:
         lowered,
         flags=re.IGNORECASE,
     )
-    amount = float(total_match.group(1).replace(",", ".")) if total_match else _parse_amount(original)
+    amount_matches = list(AMOUNT_RE.finditer(original))
+    has_transaction_hint = SCREENSHOT_TRANSACTION_HINT_RE.search(original) is not None
+
+    if total_match:
+        amount = float(total_match.group(1).replace(",", "."))
+    elif len(amount_matches) == 1 and has_transaction_hint:
+        amount = _parse_amount(original)
+    elif len(amount_matches) > 1:
+        return ParsedCommand(
+            action="transaction",
+            type="expense",
+            error="На скриншоте несколько сумм без явного итога или списания. Пришли чек/банковскую операцию или напиши сумму текстом.",
+        )
+    else:
+        amount = None
+
     if amount is None:
         return ParsedCommand(action="transaction", type="expense", error="Не вижу сумму на скриншоте.")
 
