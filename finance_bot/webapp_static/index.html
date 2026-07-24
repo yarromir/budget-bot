@@ -10,47 +10,75 @@
 <body>
   <main class="app">
     <header class="hero">
-      <p>Telegram Mini App</p>
-      <h1>Личный бюджет</h1>
-      <span id="status">Загружаю данные…</span>
+      <div>
+        <p>Telegram Mini App</p>
+        <h1>Личный бюджет</h1>
+        <span id="status">Загружаю данные…</span>
+      </div>
+      <div class="period-tabs" aria-label="Период статистики">
+        <button class="period-tab active" data-period="month" type="button">Месяц</button>
+        <button class="period-tab" data-period="day" type="button">День</button>
+      </div>
     </header>
 
-    <section class="cards">
-      <article><span>Доходы</span><strong id="income">0</strong></article>
-      <article><span>Расходы</span><strong id="expense">0</strong></article>
-      <article><span>Остаток</span><strong id="balance">0</strong></article>
+    <section class="cards" aria-label="Сводка бюджета">
+      <article><span>Доходы</span><strong id="income">0 ₽</strong></article>
+      <article><span>Расходы</span><strong id="expense">0 ₽</strong></article>
+      <article><span>Остаток</span><strong id="balance">0 ₽</strong></article>
     </section>
 
-    <section class="panel">
-      <h2>Быстрая операция</h2>
+    <section class="panel quick-panel">
+      <div class="section-title">
+        <h2>Быстрая операция</h2>
+        <small class="muted">Сначала сумма, потом категория — остальное можно не трогать.</small>
+      </div>
       <form id="transaction-form" class="grid-form">
-        <select name="type">
-          <option value="expense">Расход</option>
-          <option value="income">Доход</option>
-        </select>
-        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Сумма" required>
-        <input name="category" placeholder="Категория" value="прочее" required>
-        <input name="note" placeholder="Комментарий">
-        <button type="submit">Добавить</button>
+        <div class="segmented" role="radiogroup" aria-label="Тип операции">
+          <label><input name="type" type="radio" value="expense" checked><span>Расход</span></label>
+          <label><input name="type" type="radio" value="income"><span>Доход</span></label>
+        </div>
+        <label class="field"><span>Сумма</span><input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Например, 450" required></label>
+        <label class="field"><span>Категория</span><input id="transaction-category" name="category" placeholder="такси, кафе, продукты" value="прочее" required></label>
+        <label class="field"><span>Комментарий</span><input name="note" placeholder="Необязательно"></label>
+        <div class="chips" aria-label="Популярные категории">
+          <button type="button" data-category="продукты">продукты</button>
+          <button type="button" data-category="кафе">кафе</button>
+          <button type="button" data-category="такси">такси</button>
+          <button type="button" data-category="подписки">подписки</button>
+        </div>
+        <button class="primary" type="submit">Добавить операцию</button>
       </form>
     </section>
 
     <section class="panel">
-      <h2>Лимит категории</h2>
-      <form id="budget-form" class="grid-form two">
-        <input name="category" placeholder="Категория" required>
-        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Лимит" required>
-        <button type="submit">Сохранить лимит</button>
+      <div class="section-title">
+        <h2>Лимиты месяца</h2>
+        <small class="muted">Прогресс покажет, где пора притормозить.</small>
+      </div>
+      <form id="budget-form" class="grid-form compact">
+        <label class="field"><span>Категория</span><input name="category" placeholder="Например, такси" required></label>
+        <label class="field"><span>Лимит</span><input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="5000" required></label>
+        <button class="primary" type="submit">Сохранить лимит</button>
       </form>
+      <div id="budgets" class="list budget-list"></div>
     </section>
 
     <section class="panel">
-      <h2>Подписка</h2>
-      <form id="subscription-form" class="grid-form">
-        <input name="name" placeholder="Название" required>
-        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Сумма" required>
-        <input name="nextPaymentDate" type="date" required>
-        <button type="submit">Добавить подписку</button>
+      <div class="section-title">
+        <h2>Подписка</h2>
+        <small class="muted">Добавьте регулярные платежи, чтобы не забыть дату списания.</small>
+      </div>
+      <form id="subscription-form" class="grid-form compact">
+        <label class="field"><span>Название</span><input name="name" placeholder="YouTube, Spotify" required></label>
+        <label class="field"><span>Сумма</span><input name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="299" required></label>
+        <label class="field"><span>Следующий платеж</span><input name="nextPaymentDate" type="date" required></label>
+        <fieldset class="reminder-options">
+          <legend>Напомнить до оплаты</legend>
+          <label><input name="remind7" type="checkbox" checked><span>за 7 дней</span></label>
+          <label><input name="remind3" type="checkbox" checked><span>за 3 дня</span></label>
+          <label><input name="remind1" type="checkbox" checked><span>за 1 день</span></label>
+        </fieldset>
+        <button class="primary" type="submit">Добавить подписку</button>
       </form>
     </section>
 
@@ -69,6 +97,7 @@
       <div id="subscriptions" class="list"></div>
     </section>
   </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

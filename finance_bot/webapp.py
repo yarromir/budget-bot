@@ -23,6 +23,15 @@ def _json_row(row: object) -> dict[str, object]:
     return {key: row[key] for key in row.keys()}
 
 
+def _payload_bool(payload: dict[str, object], key: str, default: bool = True) -> bool:
+    value = payload.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _validate_init_data(init_data: str, bot_token: str) -> dict[str, object] | None:
     if not init_data or not bot_token:
         return None
@@ -82,12 +91,14 @@ async def summary(request: web.Request) -> web.Response:
         _json_row(row)
         for row in db.list_transactions(user_id, start, end)[:20]
     ]
+    budgets = [_json_row(row) for row in db.list_budgets_with_spending(user_id, current_month())]
     subscriptions = [_json_row(row) for row in db.list_active_subscriptions(user_id)]
     return web.json_response(
         {
             "summary": tx_summary,
             "expensesByCategory": expenses,
             "transactions": transactions,
+            "budgets": budgets,
             "subscriptions": subscriptions,
         }
     )
@@ -131,7 +142,15 @@ async def add_subscription(request: web.Request) -> web.Response:
         parsed_date = date.fromisoformat(next_payment_date)
     except ValueError:
         return web.json_response({"error": "bad_date"}, status=400)
-    subscription_id = request.app["db"].add_subscription(request["user_id"], name, amount, parsed_date)
+    subscription_id = request.app["db"].add_subscription(
+        request["user_id"],
+        name,
+        amount,
+        parsed_date,
+        remind_7=_payload_bool(payload, "remind7"),
+        remind_3=_payload_bool(payload, "remind3"),
+        remind_1=_payload_bool(payload, "remind1"),
+    )
     return web.json_response({"id": subscription_id, "name": name, "amount": _money(amount)})
 
 

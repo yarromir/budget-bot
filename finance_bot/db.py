@@ -329,6 +329,33 @@ class FinanceDB:
         with self.connect() as conn:
             return conn.execute("SELECT id, user_id, category, COALESCE(limit_amount_cents / 100.0, limit_amount) AS limit_amount, month FROM budgets WHERE user_id = ? AND category = ? AND month = ?", (user_id, normalize_category(category), month or current_month())).fetchone()
 
+    def list_budgets_with_spending(self, user_id: int, month: str | None = None) -> list[sqlite3.Row]:
+        budget_month = month or current_month()
+        start_at, end_at = month_bounds(budget_month)
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    budgets.id,
+                    budgets.user_id,
+                    budgets.category,
+                    COALESCE(budgets.limit_amount_cents / 100.0, budgets.limit_amount) AS limit_amount,
+                    budgets.month,
+                    COALESCE(SUM(COALESCE(transactions.amount_cents / 100.0, transactions.amount)), 0) AS spent
+                FROM budgets
+                LEFT JOIN transactions
+                    ON transactions.user_id = budgets.user_id
+                    AND transactions.category = budgets.category
+                    AND transactions.type = 'expense'
+                    AND transactions.created_at >= ?
+                    AND transactions.created_at < ?
+                WHERE budgets.user_id = ? AND budgets.month = ?
+                GROUP BY budgets.id
+                ORDER BY spent DESC, budgets.category
+                """,
+                (start_at.isoformat(timespec="seconds"), end_at.isoformat(timespec="seconds"), user_id, budget_month),
+            ).fetchall()
+
     def spent_for_category_month(self, user_id: int, category: str, month: str | None = None) -> float:
         start_at, end_at = month_bounds(month or current_month())
         with self.connect() as conn:
@@ -380,4 +407,3 @@ class FinanceDB:
                 cursor = conn.execute(f"DELETE FROM {tables[item]} WHERE user_id = ?", (user_id,))
                 deleted[item] = int(cursor.rowcount if cursor.rowcount is not None else 0)
         return deleted
-
