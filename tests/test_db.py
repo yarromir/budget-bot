@@ -33,6 +33,33 @@ def test_budget_status_thresholds(tmp_path) -> None:
     assert status.percent == 80
 
 
+def test_list_budgets_with_spending(tmp_path) -> None:
+    db = FinanceDB(tmp_path / "finance.db")
+    db.initialize()
+    db.upsert_budget(1, "такси", 1000, month="2026-07")
+    db.add_transaction(1, "expense", 250, "такси", created_at=datetime(2026, 7, 3, 12, tzinfo=APP_TZ))
+    db.add_transaction(1, "expense", 500, "такси", created_at=datetime(2026, 8, 3, 12, tzinfo=APP_TZ))
+
+    budgets = db.list_budgets_with_spending(1, month="2026-07")
+
+    assert len(budgets) == 1
+    assert budgets[0]["category"] == "такси"
+    assert budgets[0]["limit_amount"] == 1000
+    assert budgets[0]["spent"] == 250
+
+
+def test_subscription_reminder_flags_can_be_disabled(tmp_path) -> None:
+    db = FinanceDB(tmp_path / "finance.db")
+    db.initialize()
+    db.add_subscription(1, "YouTube", 299, date(2026, 8, 1), remind_7=False, remind_3=True, remind_1=False)
+
+    subscription = db.list_active_subscriptions(1)[0]
+
+    assert subscription["remind_7"] == 0
+    assert subscription["remind_3"] == 1
+    assert subscription["remind_1"] == 0
+
+
 def test_add_months_clamps_end_of_month() -> None:
     assert add_months(date(2026, 1, 31)) == date(2026, 2, 28)
 
