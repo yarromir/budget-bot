@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from finance_bot.parser import parse_message
+from finance_bot.parser import parse_message, parse_screenshot_text
 
 
 def test_expense_with_spaced_amount_and_time_word() -> None:
@@ -58,3 +58,27 @@ def test_russian_clear_database_command() -> None:
 
     assert parsed.action == "clear"
     assert parsed.target == "all"
+
+
+def test_screenshot_category_summary_is_not_recorded_as_single_expense() -> None:
+    text = (
+        "Продукты, хозтова... Подарки Транспорт Одежда, товары "
+        "314 Br 285 Br 255 Br 205 Br Еда вне дома Развлечения "
+        "Дом, подписки Здоровье 113 Br 105 Br 81 Br 76 Br Вред 58 Br"
+    )
+
+    parsed = parse_screenshot_text(text)
+
+    assert parsed.action == "transaction"
+    assert parsed.type == "expense"
+    assert parsed.amount is None
+    assert parsed.error is not None
+    assert "несколько сумм" in parsed.error
+
+
+def test_screenshot_with_single_payment_hint_records_expense() -> None:
+    parsed = parse_screenshot_text("Списание по карте 314,00 Br")
+
+    assert parsed.action == "transaction"
+    assert parsed.type == "expense"
+    assert parsed.amount == 314.00
